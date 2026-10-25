@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: "0 6 * * 1"   # weekly: new CVEs appear even when the code doesn't change
+    - cron: "0 6 * * 1" # Weekly: check for newly disclosed vulnerabilities
   workflow_dispatch:
 
 permissions:
@@ -17,55 +17,98 @@ concurrency:
 
 jobs:
   test:
+    name: Lint and test
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements-dev.txt
-      - run: pip install -r requirements-dev.txt
-      - run: ruff check .
-      - run: pytest -q
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Lint with Ruff
+        run: ruff check .
+
+      - name: Debug project files
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Root directory contents:"
+          ls -la
+          echo "Application and test files:"
+          find . -maxdepth 4 -type f \
+            \( -name "main.py" -o -name "test_rate_limiter.py" \)
+
+      - name: Run tests
+        run: python -m pytest -v
 
   image:
-    name: Build, Grype scan, smoke test
+    name: Build, Grype scan, and smoke test
     runs-on: ubuntu-latest
     needs: test
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Build image
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
         run: docker build -t rate-limiter:ci .
 
-      # Pinned to the full commit SHA of v7.4.0 (tags can be force-pushed).
-      # The action pins its own Grype version; bump it by updating this SHA.
+      # Pin third-party actions to full commit SHAs.
       - name: Scan image with Grype
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         with:
           image: rate-limiter:ci
-          severity-cutoff: high     # fail on HIGH and CRITICAL
-          only-fixed: true          # ignore vulnerabilities with no fix available
+          severity-cutoff: high
+          only-fixed: true
           fail-build: true
 
-      - name: Start the stack and wait for health checks
+      - name: Start services and wait for health checks
         run: docker compose up -d --build --wait --wait-timeout 90
 
-      - name: Smoke test
+      - name: Smoke test rate limiter
         run: |
-          set -e
-          body='{"client_id":"ci","capacity":2,"refill_rate":0.001}'
-          call() { curl -fsS -X POST localhost:8000/v1/check \
-                     -H 'content-type: application/json' -d "$body"; }
-          call | tee /dev/stderr | grep -q '"allowed":true'
-          call | tee /dev/stderr | grep -q '"allowed":true'
-          call | tee /dev/stderr | grep -q '"allowed":false'
+          set -euo pipefail
 
-      - name: Logs on failure
+          body='{"client_id":"ci","capacity":2,"refill_rate":0.001}'
+
+          call() {
+            curl --fail --silent --show-error \
+              -X POST http://localhost:8000/v1/check \
+              -H 'Content-Type: application/json' \
+              -d "$body"
+          }
+
+          echo "Request 1: should be allowed"
+          response1="$(call)"
+          echo "$response1"
+          echo "$response1" | grep -q '"allowed":true'
+
+          echo "Request 2: should be allowed"
+          response2="$(call)"
+          echo "$response2"
+          echo "$response2" | grep -q '"allowed":true'
+
+          echo "Request 3: should be rate limited"
+          response3="$(call)"
+          echo "$response3"
+          echo "$response3" | grep -q '"allowed":false'
+
+      - name: Show container logs on failure
         if: failure()
         run: docker compose logs
 
-      - name: Tear down
+      - name: Tear down services
         if: always()
         run: docker compose down -v
+```
