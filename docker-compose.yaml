@@ -1,0 +1,32 @@
+services:
+  redis:
+    image: redis:7-alpine
+    # Rate-limit state is disposable: no persistence. Every key has a TTL,
+    # so if memory fills up Redis evicts the ones closest to expiring.
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "256mb", "--maxmemory-policy", "volatile-ttl"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    # No "ports:" on purpose: only the api container needs to reach Redis.
+
+  api:
+    build: .
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      FAIL_OPEN: "${FAIL_OPEN:-true}"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3

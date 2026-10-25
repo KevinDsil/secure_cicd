@@ -1,0 +1,5 @@
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+redis>=5.0,<7
+pytest>=7.0,<8
+httpx>=0.24,<1
