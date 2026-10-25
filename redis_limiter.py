@@ -1,6 +1,6 @@
 """Redis-backed token bucket. Drop-in replacement for TokenBucketLimiter."""
 
-import redis
+import redis_limiter
 
 # Runs atomically inside Redis. Uses Redis's own clock (TIME) so that
 # app servers with skewed clocks can't disagree about how much has refilled.
@@ -47,7 +47,7 @@ return {allowed, tostring(tokens), tostring(retry)}
 class RedisTokenBucketLimiter:
     def __init__(self, url: str = "redis://localhost:6379/0",
                  prefix: str = "rl:", fail_open: bool = True):
-        self._r = redis.Redis.from_url(url, socket_timeout=0.25,
+        self._r = redis_limiter.Redis.from_url(url, socket_timeout=0.25,
                                        socket_connect_timeout=0.25)
         self._script = self._r.register_script(LUA_TOKEN_BUCKET)
         self._prefix = prefix
@@ -61,7 +61,7 @@ class RedisTokenBucketLimiter:
                 keys=[self._prefix + key],
                 args=[capacity, refill_rate, cost],
             )
-        except redis.RedisError:
+        except redis_limiter.RedisError:
             # Redis is down or slow: choose availability or strictness.
             if self._fail_open:
                 return Decision(True, 0.0, 0.0)
