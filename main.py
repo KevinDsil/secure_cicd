@@ -11,10 +11,10 @@ Try:   curl -X POST localhost:8000/v1/check \
 import math
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
-from fastapi import FastAPI , HTTPException
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 DEFAULT_CAPACITY = 10        # max burst size (tokens)
@@ -34,7 +34,7 @@ class Bucket:
 class Decision:
     allowed: bool
     remaining: float
-    retry_after: Optional[float]  # seconds; None if the request can never succeed
+    retry_after: float | None  # seconds; None if the request can never succeed
 
 
 class TokenBucketLimiter:
@@ -99,7 +99,7 @@ class CheckRequest(BaseModel):
 class CheckResponse(BaseModel):
     allowed: bool
     remaining: float
-    retry_after_seconds: Optional[float]
+    retry_after_seconds: float | None
 
 
 app = FastAPI(title="Rate Limiter")
